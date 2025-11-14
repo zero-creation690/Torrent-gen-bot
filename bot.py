@@ -122,7 +122,7 @@ settings = {
     'cache_buffer_chunk_size': 128,
     'read_cache_line_size': 128,
     'write_cache_line_size': 128,
-    # 'optimize_hashing_for_speed': True, # <-- FIX: This setting caused the KeyError in your log
+    # 'optimize_hashing_for_speed': True, # <-- FIX #1: Removed this line
     'file_pool_size': 500,
     'max_retry_port_bind': 100,
     'alert_queue_size': 2000,
@@ -221,6 +221,7 @@ def start_seeding(file_path: Path, torrent_file: Path) -> str:
         atp.flags |= lt.torrent_flags.auto_managed
         atp.flags |= lt.torrent_flags.upload_mode  # Seed only mode
         atp.flags |= lt.torrent_flags.share_mode  # Share with everyone
+        atp.flags |= lt.torrent_flags.super_seeding # <-- FIX #2: Set super seeding as a flag here
         
         handle = lt_session.add_torrent(atp)
         
@@ -234,7 +235,7 @@ def start_seeding(file_path: Path, torrent_file: Path) -> str:
         handle.force_dht_announce()
         
         # Set super seeding for initial fast distribution
-        handle.set_super_seeding(True)
+        # handle.set_super_seeding(True) # <-- FIX #2: Removed this error line
         
         info_hash = str(info.info_hash())
         

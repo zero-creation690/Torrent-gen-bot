@@ -63,7 +63,11 @@ TRACKERS = [
 
 # Initialize MongoDB
 try:
-    mongo_client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
+    mongo_client = MongoClient(
+        MONGO_URI,
+        serverSelectionTimeoutMS=5000,
+        connectTimeoutMS=5000
+    )
     db = mongo_client['torrent_bot']
     torrents_collection = db['torrents']
     mongo_client.admin.command('ping')

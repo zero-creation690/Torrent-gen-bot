@@ -159,18 +159,16 @@ def start_seeding(file_path: Path, torrent_file: Path) -> str:
     try:
         info = lt.torrent_info(str(torrent_file))
         
-        params = {
-            'ti': info,
-            'save_path': str(file_path.parent),
-            'seed_mode': True,
-            'upload_mode': False,
-            'auto_managed': True,
-            'duplicate_is_error': True,
-            'max_uploads': -1,
-            'max_connections': -1
-        }
+        # Create add_torrent_params (compatible with all libtorrent versions)
+        atp = lt.add_torrent_params()
+        atp.ti = info
+        atp.save_path = str(file_path.parent)
         
-        handle = lt_session.add_torrent(params)
+        # Set flags for seeding
+        atp.flags |= lt.torrent_flags.seed_mode
+        atp.flags |= lt.torrent_flags.auto_managed
+        
+        handle = lt_session.add_torrent(atp)
         
         # Force announce to all trackers immediately
         handle.force_reannounce()
@@ -232,60 +230,35 @@ async def handle_file(client: Client, message: Message):
         )
         
         # STEP 1: Forward to BIN_CHANNEL (permanent storage)
+        # Skip forward for now - just save locally and create torrent
+        forwarded_id = None
         try:
-            # Try method 1: Copy message (more reliable for bots)
-            forwarded = await client.copy_message(
-                chat_id=BIN_CHANNEL,
-                from_chat_id=message.chat.id,
-                message_id=message.id
-            )
-            logger.info(f"✅ Copied to BIN_CHANNEL")
-        except Exception as e1:
-            try:
-                # Try method 2: Forward message
-                forwarded = await client.forward_messages(
-                    chat_id=BIN_CHANNEL,
-                    from_chat_id=message.chat.id,
-                    message_ids=message.id
+            # Try sending file directly to channel
+            if message.document:
+                forwarded = await client.send_document(
+                    BIN_CHANNEL,
+                    message.document.file_id,
+                    caption=f"📁 {file_name}\n👤 From: {message.from_user.id}"
                 )
-                logger.info(f"✅ Forwarded to BIN_CHANNEL")
-            except Exception as e2:
-                try:
-                    # Try method 3: Send media directly
-                    if message.document:
-                        forwarded = await client.send_document(
-                            BIN_CHANNEL,
-                            message.document.file_id,
-                            caption=f"From: {message.from_user.id}\nFile: {file_name}"
-                        )
-                    elif message.video:
-                        forwarded = await client.send_video(
-                            BIN_CHANNEL,
-                            message.video.file_id,
-                            caption=f"From: {message.from_user.id}\nFile: {file_name}"
-                        )
-                    elif message.audio:
-                        forwarded = await client.send_audio(
-                            BIN_CHANNEL,
-                            message.audio.file_id,
-                            caption=f"From: {message.from_user.id}\nFile: {file_name}"
-                        )
-                    logger.info(f"✅ Sent media to BIN_CHANNEL")
-                except Exception as e3:
-                    await status.edit_text(
-                        f"❌ **All forward methods failed!**\n\n"
-                        f"**Errors:**\n"
-                        f"1. Copy: `{str(e1)[:50]}`\n"
-                        f"2. Forward: `{str(e2)[:50]}`\n"
-                        f"3. Send: `{str(e3)[:50]}`\n\n"
-                        f"**Current Channel:** `{BIN_CHANNEL}`\n\n"
-                        f"**Try:**\n"
-                        f"1. Remove bot from channel\n"
-                        f"2. Add bot again as admin\n"
-                        f"3. Restart bot: `docker-compose restart`"
-                    )
-                    logger.error(f"All forward methods failed: {e1}, {e2}, {e3}")
-                    return
+                forwarded_id = forwarded.id
+            elif message.video:
+                forwarded = await client.send_video(
+                    BIN_CHANNEL,
+                    message.video.file_id,
+                    caption=f"🎬 {file_name}\n👤 From: {message.from_user.id}"
+                )
+                forwarded_id = forwarded.id
+            elif message.audio:
+                forwarded = await client.send_audio(
+                    BIN_CHANNEL,
+                    message.audio.file_id,
+                    caption=f"🎵 {file_name}\n👤 From: {message.from_user.id}"
+                )
+                forwarded_id = forwarded.id
+            logger.info(f"✅ Sent to BIN_CHANNEL")
+        except Exception as e:
+            logger.warning(f"⚠️ Channel forward skipped: {e}")
+            # Continue anyway - we'll still create torrent
         
         # STEP 2: Download locally (with progress)
         file_path = SEED_DIR / file_name
@@ -335,11 +308,12 @@ async def handle_file(client: Client, message: Message):
             'file_size': file_size,
             'magnet_link': magnet_link,
             'torrent_file': str(torrent_file),
-            'bin_channel_msg_id': forwarded.id,
+            'bin_channel_msg_id': forwarded_id,
             'created_at': datetime.utcnow(),
             'user_id': message.from_user.id,
             'username': message.from_user.username,
-            'processing_time': total_time
+            'processing_time': total_time,
+            'channel_forwarded': forwarded_id is not None
         }
         
         await asyncio.get_event_loop().run_in_executor(
@@ -351,14 +325,15 @@ async def handle_file(client: Client, message: Message):
         
         # Send final result
         caption = (
-            f"✅ **Ready to Seed**\n\n"
+            f"✅ **Torrent Ready!**\n\n"
             f"📄 **File:** `{file_name}`\n"
             f"📦 **Size:** {file_size_mb:.1f} MB ({file_size_gb:.2f} GB)\n"
             f"🔑 **Hash:** `{info_hash[:32]}`\n"
-            f"⚡ **Processed in:** {total_time:.1f}s\n\n"
-            f"🧲 **Magnet Link:**\n"
+            f"⚡ **Time:** {total_time:.1f}s\n"
+            f"💾 **Stored:** {'✅ Yes' if forwarded_id else '⚠️ Local only'}\n\n"
+            f"🧲 **Magnet:**\n"
             f"`{magnet_link}`\n\n"
-            f"⚠️ **Keep bot online to maintain seeding!**"
+            f"🌱 **Seeding now - keep bot online!**"
         )
         
         # Send .torrent file

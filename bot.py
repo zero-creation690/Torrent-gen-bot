@@ -284,6 +284,8 @@ async def lt_monitor_loop():
 @app.on_message(filters.document | filters.video | filters.audio)
 async def handle_file(client: Client, message: Message):
     """Handle file uploads - YTS optimized"""
+    logger.info(f"📥 Received file from {message.from_user.id}")
+    
     try:
         start_time = time.time()
         
@@ -406,6 +408,7 @@ async def handle_file(client: Client, message: Message):
 
 @app.on_message(filters.command("start"))
 async def start_cmd(_, message: Message):
+    logger.info(f"📨 /start from {message.from_user.id}")
     await message.reply_text(
         "🤖 **YTS-Style Torrent Bot**\n\n"
         "Send files up to **4GB**!\n\n"
@@ -414,7 +417,8 @@ async def start_cmd(_, message: Message):
         "✅ Instant magnets\n\n"
         "**Commands:**\n"
         "/stats - Seeding stats\n"
-        "/list - Recent torrents"
+        "/list - Recent torrents\n\n"
+        "**Just send me a file to start!**"
     )
 
 
@@ -464,29 +468,45 @@ async def list_cmd(_, message: Message):
         await message.reply_text(f"❌ {e}")
 
 
+@app.on_message(filters.text & ~filters.command(["start", "stats", "list"]))
+async def echo_test(_, message: Message):
+    """Test if bot receives messages"""
+    logger.info(f"💬 Text message from {message.from_user.id}: {message.text}")
+    await message.reply_text(f"✅ Bot is online!\n\nSend me a **file** to create a torrent.")
+
+
 async def main():
     """Main function"""
-    await app.start()
-    logger.info("✅ YTS Bot Online!")
-    
-    if OWNER_ID != 0:
+    try:
+        await app.start()
+        me = await app.get_me()
+        logger.info(f"✅ YTS Bot Online as @{me.username}")
+        
+        if OWNER_ID != 0:
+            try:
+                await app.send_message(OWNER_ID, f"✅ YTS Bot started!\n@{me.username}")
+            except Exception as e:
+                logger.warning(f"⚠️ Owner notification failed: {e}")
+        
+        # Start monitor
+        monitor_task = asyncio.create_task(lt_monitor_loop())
+        
+        # Keep running and receiving updates
+        logger.info("🔄 Listening for messages...")
+        await idle()
+        
+    except Exception as e:
+        logger.error(f"❌ Main error: {e}", exc_info=True)
+    finally:
+        # Cleanup
         try:
-            await app.send_message(OWNER_ID, "✅ YTS Bot started!")
+            monitor_task.cancel()
         except:
             pass
-    
-    # Start monitor
-    monitor_task = asyncio.create_task(lt_monitor_loop())
-    
-    # Keep running
-    await idle()
-    
-    # Cleanup
-    monitor_task.cancel()
-    await app.stop()
-    lt_session.pause()
-    if mongo_client:
-        mongo_client.close()
+        await app.stop()
+        lt_session.pause()
+        if mongo_client:
+            mongo_client.close()
 
 
 if __name__ == "__main__":

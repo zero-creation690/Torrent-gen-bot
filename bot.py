@@ -553,39 +553,45 @@ async def db_stats(client: Client, message: Message):
         await message.reply_text(f"❌ Error: {e}")
 
 
+async def main():
+    """Main async function"""
+    try:
+        # Start the Pyrogram client
+        await app.start()
+        logger.info("✅ Bot started successfully!")
+        
+        # Notify owner
+        if OWNER_ID != 0:
+            try:
+                await app.send_message(OWNER_ID, "✅ Bot is online and ready!")
+            except Exception as e:
+                logger.warning(f"⚠️ Could not notify owner: {e}")
+        
+        # Run monitor loop and keep bot running
+        await asyncio.gather(
+            lt_monitor_loop(),
+            app.idle()
+        )
+        
+    except Exception as e:
+        logger.error(f"❌ Fatal error: {e}", exc_info=True)
+    finally:
+        await app.stop()
+        lt_session.pause()
+        if mongo_client:
+            mongo_client.close()
+
+
 if __name__ == "__main__":
     logger.info("=" * 50)
     logger.info("🚀 TELEGRAM TORRENT BOT")
     logger.info("=" * 50)
     
-    loop = asyncio.get_event_loop()
+    # Set parse mode
+    app.set_parse_mode("markdown")
     
     try:
-        # Start the Pyrogram client
-        app.set_parse_mode("markdown")
-        loop.run_until_complete(app.start())
-        
-        # Notify owner
-        if OWNER_ID != 0:
-            try:
-                loop.run_until_complete(
-                    app.send_message(OWNER_ID, "✅ Bot started successfully!")
-                )
-            except Exception as e:
-                logger.warning(f"⚠️ Could not notify owner: {e}")
-        
-        # Run monitor loop and main bot concurrently
-        loop.run_until_complete(asyncio.gather(
-            lt_monitor_loop(),
-            app.idle()
-        ))
-        
+        # Run the main async function
+        asyncio.run(main())
     except KeyboardInterrupt:
         logger.info("🛑 Shutting down gracefully...")
-        lt_session.pause()
-        if mongo_client:
-            mongo_client.close()
-    except Exception as e:
-        logger.error(f"❌ Fatal error: {e}", exc_info=True)
-    finally:
-        loop.run_until_complete(app.stop())

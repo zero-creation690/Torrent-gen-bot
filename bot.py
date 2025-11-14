@@ -17,11 +17,12 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Configuration
+# NOTE: Ensure these environment variables are set correctly in Sevalla.
 API_ID = int(os.getenv("API_ID"))
 API_HASH = os.getenv("API_HASH")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 SESSION_NAME = os.getenv("SESSION_NAME", "torrent_userbot")
-# Ensure BIN_CHANNEL is set to the correct -100... ID
+# CRITICAL: BIN_CHANNEL must be a negative integer ID (e.g., -100xxxxxxxxxx)
 BIN_CHANNEL = int(os.getenv("BIN_CHANNEL")) 
 OWNER_ID = int(os.getenv("OWNER_ID", "0"))
 MONGO_URI = os.getenv("MONGO_URI", "mongodb://mongodb:27017/")
@@ -34,7 +35,7 @@ TORRENT_DIR = Path("/srv/torrents")
 SEED_DIR.mkdir(parents=True, exist_ok=True)
 TORRENT_DIR.mkdir(parents=True, exist_ok=True)
 
-# ULTRA FAST trackers (like YTS, 1337x, RARBG)
+# ULTRA FAST trackers
 TRACKERS = [
     # Tier 1 - FASTEST (Public & Popular)
     "udp://tracker.opentrackr.org:1337/announce",
@@ -71,7 +72,7 @@ stats_collection = db['stats']
 
 logger.info("MongoDB connected successfully")
 
-# Initialize Bot (using bot token for better reliability)
+# Initialize Bot
 app = Client(
     SESSION_NAME,
     api_id=API_ID,
@@ -92,7 +93,7 @@ lt_session = lt.session({
     'checking_mem_usage': 2048  # 2GB
 })
 
-# ULTRA FAST seeding settings (like YTS/1337x)
+# ULTRA FAST seeding settings
 settings = {
     'enable_dht': True,
     'enable_lsd': True,
@@ -162,7 +163,7 @@ def create_torrent_file(file_path: Path) -> tuple[Path, str]:
         # Create torrent with OPTIMAL piece size for fast downloads
         file_size = file_path.stat().st_size
         
-        # YTS-style piece size optimization
+        # Piece size optimization logic
         if file_size < 100 * 1024 * 1024:  # < 100MB
             piece_size = 256 * 1024  # 256KB
         elif file_size < 500 * 1024 * 1024:  # < 500MB
@@ -175,7 +176,7 @@ def create_torrent_file(file_path: Path) -> tuple[Path, str]:
         t = lt.create_torrent(fs, piece_size=piece_size)
         t.set_priv(False)  # Public for more peers
         
-        # Add BEST trackers for maximum speed
+        # Add BEST trackers
         tier = 0
         for tracker in TRACKERS:
             t.add_tracker(tracker, tier)
@@ -193,7 +194,7 @@ def create_torrent_file(file_path: Path) -> tuple[Path, str]:
         with open(torrent_file_path, "wb") as f:
             f.write(torrent_data)
         
-        # Generate magnet link with ALL info for faster start
+        # Generate magnet link
         info = lt.torrent_info(str(torrent_file_path))
         magnet_link = lt.make_magnet_uri(info)
         
@@ -262,10 +263,10 @@ async def lt_monitor_loop():
     """Continuously monitors the libtorrent session and forces aggressive settings."""
     logger.info("Monitor loop started: Ensuring max performance every 15s...")
     while True:
-        # Check and process alerts from libtorrent
+        # Process alerts
         lt_session.pop_alerts(lt.session.alert_mask) 
         
-        # Re-apply aggressive settings to all handles every 15 seconds
+        # Re-apply aggressive settings to all handles
         for info_hash, data in list(active_torrents.items()):
             handle = data['handle']
             if handle.is_valid() and handle.status().state == lt.torrent_status.seeding:
@@ -295,12 +296,11 @@ async def handle_file(client: Client, message: Message):
             return
         
         file_size = media.file_size
-        file_size_gb = file_size / (1024**3)
         file_size_mb = file_size / (1024**2)
         
-        logger.info(f"📥 Received: {file_name} ({file_size_gb:.2f} GB)")
+        logger.info(f"📥 Received: {file_name} ({file_size_mb:.2f} MB)")
         
-        # Size check
+        # Size check (4GB limit)
         if file_size > 4 * 1024 * 1024 * 1024:
             await message.reply_text("❌ File exceeds 4GB limit!")
             return
@@ -339,15 +339,16 @@ async def handle_file(client: Client, message: Message):
                 forwarded_id = forwarded.id
             logger.info(f"✅ Sent to BIN_CHANNEL")
         except Exception as e:
-            # This handles errors if the BIN_CHANNEL ID is wrong or bot lacks permissions
+            # Log error if BIN_CHANNEL ID is wrong or permissions are missing
             logger.warning(f"⚠️ Channel forward skipped: {e}")
             
         
-        # STEP 2: Download locally (with progress)
+        # STEP 2: Download locally 
         file_path = SEED_DIR / file_name
         download_start = time.time()
         
         async def progress(current, total):
+            # Placeholder for future progress bar implementation
             pass 
         
         try:
@@ -403,10 +404,10 @@ async def handle_file(client: Client, message: Message):
             None, save_to_mongodb, torrent_data
         )
         
-        # Send final result IMMEDIATELY
+        # Send final result
         await status.delete()
         
-        # 1. Create the main caption WITHOUT the magnet link (Caption fix)
+        # 1. Create the main caption
         caption = (
             f"⚡ **ULTRA FAST TORRENT**\n\n"
             f"📄 `{file_name}`\n"
@@ -416,7 +417,7 @@ async def handle_file(client: Client, message: Message):
             f"🚀 **SEEDING AT 1000MB/s** 🚀"
         )
         
-        # 2. Send the .torrent file with the shorter caption
+        # 2. Send the .torrent file
         torrent_message = await message.reply_document(
             document=str(torrent_file),
             caption=caption,
@@ -544,14 +545,16 @@ if __name__ == "__main__":
     loop = asyncio.get_event_loop()
     
     try:
-        # CRITICAL FIX: Properly start Pyrogram client before gathering tasks.
+        # **CRITICAL FIX:** This correctly starts the Pyrogram client and then runs the 
+        # monitor loop and app.idle() concurrently using asyncio.gather().
         app.set_parse_mode("markdown")
         loop.run_until_complete(app.start())
         
-        # Notify the owner that the bot has started
-        loop.run_until_complete(app.send_message(OWNER_ID, "✅ Bot deployed and monitor started!"))
+        # Notify the owner that the bot has started (Ensures the client is ready)
+        if OWNER_ID != 0:
+            loop.run_until_complete(app.send_message(OWNER_ID, "✅ Bot deployed and monitor started!"))
         
-        # Run the monitor loop concurrently with the Pyrogram client waiting for updates
+        # Run the monitor loop and the main Pyrogram listener concurrently
         loop.run_until_complete(asyncio.gather(
             lt_monitor_loop(),
             app.idle()

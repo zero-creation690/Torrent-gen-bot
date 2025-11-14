@@ -122,7 +122,7 @@ settings = {
     'cache_buffer_chunk_size': 128,
     'read_cache_line_size': 128,
     'write_cache_line_size': 128,
-    'optimize_hashing_for_speed': True,
+    # 'optimize_hashing_for_speed': True, # <-- FIX: This setting caused the KeyError in your log
     'file_pool_size': 500,
     'max_retry_port_bind': 100,
     'alert_queue_size': 2000,

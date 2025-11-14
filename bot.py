@@ -233,24 +233,59 @@ async def handle_file(client: Client, message: Message):
         
         # STEP 1: Forward to BIN_CHANNEL (permanent storage)
         try:
-            # Add bot to channel first if not already admin
-            forwarded = await client.forward_messages(
+            # Try method 1: Copy message (more reliable for bots)
+            forwarded = await client.copy_message(
                 chat_id=BIN_CHANNEL,
                 from_chat_id=message.chat.id,
-                message_ids=message.id
+                message_id=message.id
             )
-            logger.info(f"✅ Forwarded to BIN_CHANNEL")
-        except Exception as e:
-            await status.edit_text(
-                f"❌ **Forward failed!**\n\n"
-                f"**Error:** `{e}`\n\n"
-                f"**Fix:**\n"
-                f"1. Add bot to channel as **admin**\n"
-                f"2. Make sure channel ID is correct\n"
-                f"3. Current ID: `{BIN_CHANNEL}`"
-            )
-            logger.error(f"Forward error: {e}")
-            return
+            logger.info(f"✅ Copied to BIN_CHANNEL")
+        except Exception as e1:
+            try:
+                # Try method 2: Forward message
+                forwarded = await client.forward_messages(
+                    chat_id=BIN_CHANNEL,
+                    from_chat_id=message.chat.id,
+                    message_ids=message.id
+                )
+                logger.info(f"✅ Forwarded to BIN_CHANNEL")
+            except Exception as e2:
+                try:
+                    # Try method 3: Send media directly
+                    if message.document:
+                        forwarded = await client.send_document(
+                            BIN_CHANNEL,
+                            message.document.file_id,
+                            caption=f"From: {message.from_user.id}\nFile: {file_name}"
+                        )
+                    elif message.video:
+                        forwarded = await client.send_video(
+                            BIN_CHANNEL,
+                            message.video.file_id,
+                            caption=f"From: {message.from_user.id}\nFile: {file_name}"
+                        )
+                    elif message.audio:
+                        forwarded = await client.send_audio(
+                            BIN_CHANNEL,
+                            message.audio.file_id,
+                            caption=f"From: {message.from_user.id}\nFile: {file_name}"
+                        )
+                    logger.info(f"✅ Sent media to BIN_CHANNEL")
+                except Exception as e3:
+                    await status.edit_text(
+                        f"❌ **All forward methods failed!**\n\n"
+                        f"**Errors:**\n"
+                        f"1. Copy: `{str(e1)[:50]}`\n"
+                        f"2. Forward: `{str(e2)[:50]}`\n"
+                        f"3. Send: `{str(e3)[:50]}`\n\n"
+                        f"**Current Channel:** `{BIN_CHANNEL}`\n\n"
+                        f"**Try:**\n"
+                        f"1. Remove bot from channel\n"
+                        f"2. Add bot again as admin\n"
+                        f"3. Restart bot: `docker-compose restart`"
+                    )
+                    logger.error(f"All forward methods failed: {e1}, {e2}, {e3}")
+                    return
         
         # STEP 2: Download locally (with progress)
         file_path = SEED_DIR / file_name

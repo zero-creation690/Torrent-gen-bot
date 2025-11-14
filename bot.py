@@ -22,9 +22,9 @@ API_ID = int(os.getenv("API_ID"))
 API_HASH = os.getenv("API_HASH")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 SESSION_NAME = os.getenv("SESSION_NAME", "torrent_userbot")
-BIN_CHANNEL = int(os.getenv("BIN_CHANNEL"))
+BIN_CHANNEL = int(os.getenv("BIN_CHANNEL"))  # Supports both -100 and -1003 format
 OWNER_ID = int(os.getenv("OWNER_ID", "0"))
-MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
+MONGO_URI = os.getenv("MONGO_URI", "mongodb://mongodb:27017/")
 
 # Directories
 SEED_DIR = Path("/srv/seeds")
@@ -233,10 +233,23 @@ async def handle_file(client: Client, message: Message):
         
         # STEP 1: Forward to BIN_CHANNEL (permanent storage)
         try:
-            forwarded = await message.forward(BIN_CHANNEL)
+            # Add bot to channel first if not already admin
+            forwarded = await client.forward_messages(
+                chat_id=BIN_CHANNEL,
+                from_chat_id=message.chat.id,
+                message_ids=message.id
+            )
             logger.info(f"✅ Forwarded to BIN_CHANNEL")
         except Exception as e:
-            await status.edit_text(f"❌ Forward failed: {e}")
+            await status.edit_text(
+                f"❌ **Forward failed!**\n\n"
+                f"**Error:** `{e}`\n\n"
+                f"**Fix:**\n"
+                f"1. Add bot to channel as **admin**\n"
+                f"2. Make sure channel ID is correct\n"
+                f"3. Current ID: `{BIN_CHANNEL}`"
+            )
+            logger.error(f"Forward error: {e}")
             return
         
         # STEP 2: Download locally (with progress)

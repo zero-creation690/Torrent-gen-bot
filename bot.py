@@ -33,6 +33,16 @@ TORRENT_DIR = Path("/srv/torrents")
 SEED_DIR.mkdir(parents=True, exist_ok=True)
 TORRENT_DIR.mkdir(parents=True, exist_ok=True)
 
+# CRITICAL FIX: Delete old session files to prevent auth errors
+import glob
+session_files = glob.glob("/srv/*.session*")
+for f in session_files:
+    try:
+        os.remove(f)
+        logger.info(f"🗑️ Deleted old session: {f}")
+    except:
+        pass
+
 # ULTRA FAST trackers
 TRACKERS = [
     # Tier 1 - FASTEST (Public & Popular)
@@ -74,7 +84,7 @@ except Exception as e:
 
 # Initialize Bot with FIXED session name
 app = Client(
-    "torrent_bot",  # FIXED: Simple hardcoded name instead of SESSION_NAME variable
+    f"bot_{int(time.time())}",  # UNIQUE name with timestamp to avoid old sessions
     api_id=API_ID,
     api_hash=API_HASH,
     bot_token=BOT_TOKEN,

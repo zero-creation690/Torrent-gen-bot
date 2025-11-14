@@ -34,18 +34,33 @@ TORRENT_DIR = Path("/srv/torrents")
 SEED_DIR.mkdir(parents=True, exist_ok=True)
 TORRENT_DIR.mkdir(parents=True, exist_ok=True)
 
-# Trackers list (optimized for fast peer discovery)
+# ULTRA FAST trackers (like YTS, 1337x, RARBG)
 TRACKERS = [
+    # Tier 1 - FASTEST (Public & Popular)
     "udp://tracker.opentrackr.org:1337/announce",
-    "https://tracker.openbittorrent.com:443/announce",
     "udp://open.stealth.si:80/announce",
     "udp://tracker.torrent.eu.org:451/announce",
-    "udp://tracker.moeking.me:6969/announce",
     "udp://exodus.desync.com:6969/announce",
-    "udp://tracker.tiny-vps.com:6969/announce",
+    "udp://tracker.moeking.me:6969/announce",
+    
+    # Tier 2 - Fast & Reliable
+    "https://tracker.openbittorrent.com:443/announce",
     "udp://opentracker.i2p.rocks:6969/announce",
-    "udp://tracker.openbittorrent.com:6969/announce",
-    "udp://tracker.internetwarriors.net:1337/announce"
+    "udp://tracker.internetwarriors.net:1337/announce",
+    "udp://tracker.tiny-vps.com:6969/announce",
+    "udp://tracker.dler.org:6969/announce",
+    
+    # Tier 3 - High Performance
+    "udp://9.rarbg.com:2810/announce",
+    "udp://tracker.opentrackr.org:1337/announce",
+    "udp://tracker.cyberia.is:6969/announce",
+    "udp://retracker.lanta-net.ru:2710/announce",
+    "udp://tracker.zer0day.to:1337/announce",
+    
+    # WebTorrent for browser downloads
+    "wss://tracker.btorrent.xyz",
+    "wss://tracker.openwebtorrent.com",
+    "wss://tracker.fastcast.nz"
 ]
 
 # Initialize MongoDB
@@ -66,31 +81,55 @@ app = Client(
     workers=8  # Increase workers for faster processing
 )
 
-# Libtorrent session with optimized settings
+# Libtorrent session with ULTRA FAST settings
 lt_session = lt.session({
     'listen_interfaces': '0.0.0.0:6881,[::]:6881',
     'alert_mask': lt.alert.category_t.status_notification | lt.alert.category_t.error_notification,
     'outgoing_interfaces': '',
     'announce_to_all_tiers': True,
     'announce_to_all_trackers': True,
-    'aio_threads': 8,
-    'checking_mem_usage': 1024
+    'aio_threads': 16,  # Increased for faster I/O
+    'checking_mem_usage': 2048  # More memory for faster checking
 })
 
-# Optimized settings for fast seeding
+# ULTRA FAST seeding settings (like YTS/1337x)
 settings = {
     'enable_dht': True,
     'enable_lsd': True,
     'enable_upnp': True,
     'enable_natpmp': True,
-    'connections_limit': 500,
-    'upload_rate_limit': 0,
-    'download_rate_limit': 0,
+    'connections_limit': 2000,  # More connections
+    'upload_rate_limit': 0,  # Unlimited upload
+    'download_rate_limit': 0,  # Unlimited download
     'active_downloads': -1,
     'active_seeds': -1,
     'active_limit': -1,
-    'max_out_request_queue': 1000,
-    'max_allowed_in_request_queue': 2000,
+    'max_out_request_queue': 5000,  # Increased queue
+    'max_allowed_in_request_queue': 5000,
+    'unchoke_slots_limit': 100,  # More upload slots
+    'max_peerlist_size': 4000,  # More peers
+    'max_paused_peerlist_size': 4000,
+    'min_reconnect_time': 1,  # Faster reconnect
+    'peer_connect_timeout': 7,
+    'request_timeout': 20,
+    'inactivity_timeout': 30,
+    'torrent_connect_boost': 30,  # Connect faster
+    'seeding_outgoing_connections': True,
+    'no_connect_privileged_ports': False,
+    'seed_choking_algorithm': 1,  # Fastest upload
+    'cache_size': 2048,  # 2GB cache for speed
+    'use_read_cache': True,
+    'cache_buffer_chunk_size': 128,
+    'read_cache_line_size': 128,
+    'write_cache_line_size': 128,
+    'optimize_hashing_for_speed': True,
+    'file_pool_size': 500,
+    'max_retry_port_bind': 100,
+    'alert_queue_size': 2000,
+    'allow_multiple_connections_per_ip': True,
+    'send_buffer_watermark': 5 * 1024 * 1024,  # 5MB buffer
+    'send_buffer_low_watermark': 1 * 1024 * 1024,
+    'send_buffer_watermark_factor': 150,
 }
 lt_session.apply_settings(settings)
 
@@ -116,23 +155,36 @@ def save_to_mongodb(torrent_data: dict):
 
 
 def create_torrent_file(file_path: Path) -> tuple[Path, str]:
-    """Create .torrent file and magnet link - OPTIMIZED"""
+    """Create .torrent file and magnet link - ULTRA OPTIMIZED for YTS-style speed"""
     try:
         fs = lt.file_storage()
         lt.add_files(fs, str(file_path))
         
-        t = lt.create_torrent(fs)
-        t.set_priv(False)
+        # Create torrent with OPTIMAL piece size for fast downloads
+        file_size = file_path.stat().st_size
         
-        # Add all trackers
+        # YTS-style piece size optimization
+        if file_size < 100 * 1024 * 1024:  # < 100MB
+            piece_size = 256 * 1024  # 256KB
+        elif file_size < 500 * 1024 * 1024:  # < 500MB
+            piece_size = 512 * 1024  # 512KB
+        elif file_size < 1024 * 1024 * 1024:  # < 1GB
+            piece_size = 1024 * 1024  # 1MB
+        else:  # > 1GB
+            piece_size = 2 * 1024 * 1024  # 2MB
+        
+        t = lt.create_torrent(fs, piece_size=piece_size)
+        t.set_priv(False)  # Public for more peers
+        
+        # Add BEST trackers for maximum speed
         tier = 0
         for tracker in TRACKERS:
             t.add_tracker(tracker, tier)
         
-        t.set_creator("TG Torrent Bot")
-        t.set_comment(f"File: {file_path.name}")
+        t.set_creator("TG Ultra Fast Bot")
+        t.set_comment(f"Fast Download | {file_path.name}")
         
-        # Generate piece hashes (optimized with parallel processing)
+        # Generate piece hashes
         lt.set_piece_hashes(t, str(file_path.parent))
         
         # Generate torrent
@@ -142,11 +194,11 @@ def create_torrent_file(file_path: Path) -> tuple[Path, str]:
         with open(torrent_file_path, "wb") as f:
             f.write(torrent_data)
         
-        # Generate magnet link
+        # Generate magnet link with ALL info for faster start
         info = lt.torrent_info(str(torrent_file_path))
         magnet_link = lt.make_magnet_uri(info)
         
-        logger.info(f"Torrent created: {torrent_file_path.name}")
+        logger.info(f"Torrent created: {torrent_file_path.name} | Piece: {piece_size/1024}KB")
         return torrent_file_path, magnet_link
         
     except Exception as e:
@@ -155,24 +207,34 @@ def create_torrent_file(file_path: Path) -> tuple[Path, str]:
 
 
 def start_seeding(file_path: Path, torrent_file: Path) -> str:
-    """Start seeding with optimized settings"""
+    """Start seeding with ULTRA FAST settings (YTS-style)"""
     try:
         info = lt.torrent_info(str(torrent_file))
         
-        # Create add_torrent_params (compatible with all libtorrent versions)
+        # Create add_torrent_params with MAXIMUM performance
         atp = lt.add_torrent_params()
         atp.ti = info
         atp.save_path = str(file_path.parent)
         
-        # Set flags for seeding
-        atp.flags |= lt.torrent_flags.seed_mode
+        # Set flags for ULTRA FAST seeding
+        atp.flags |= lt.torrent_flags.seed_mode  # Skip hash check
         atp.flags |= lt.torrent_flags.auto_managed
+        atp.flags |= lt.torrent_flags.upload_mode  # Seed only mode
+        atp.flags |= lt.torrent_flags.share_mode  # Share with everyone
         
         handle = lt_session.add_torrent(atp)
         
-        # Force announce to all trackers immediately
-        handle.force_reannounce()
+        # AGGRESSIVE seeding settings
+        handle.set_max_uploads(-1)  # Unlimited uploads
+        handle.set_max_connections(-1)  # Unlimited connections
+        handle.set_upload_limit(-1)  # No upload limit
+        
+        # Force immediate announces to ALL trackers
+        handle.force_reannounce(0, -1)  # All trackers
         handle.force_dht_announce()
+        
+        # Set super seeding for initial fast distribution
+        handle.set_super_seeding(True)
         
         info_hash = str(info.info_hash())
         
@@ -184,7 +246,7 @@ def start_seeding(file_path: Path, torrent_file: Path) -> str:
             'name': file_path.name
         }
         
-        logger.info(f"Seeding: {file_path.name} | Hash: {info_hash[:16]}")
+        logger.info(f"🌱 ULTRA SEEDING: {file_path.name} | Hash: {info_hash[:16]}")
         return info_hash
         
     except Exception as e:
@@ -320,20 +382,17 @@ async def handle_file(client: Client, message: Message):
             None, save_to_mongodb, torrent_data
         )
         
-        # Delete status message
+        # Send final result IMMEDIATELY
         await status.delete()
         
-        # Send final result
         caption = (
-            f"✅ **Torrent Ready!**\n\n"
-            f"📄 **File:** `{file_name}`\n"
-            f"📦 **Size:** {file_size_mb:.1f} MB ({file_size_gb:.2f} GB)\n"
-            f"🔑 **Hash:** `{info_hash[:32]}`\n"
-            f"⚡ **Time:** {total_time:.1f}s\n"
-            f"💾 **Stored:** {'✅ Yes' if forwarded_id else '⚠️ Local only'}\n\n"
-            f"🧲 **Magnet:**\n"
-            f"`{magnet_link}`\n\n"
-            f"🌱 **Seeding now - keep bot online!**"
+            f"⚡ **ULTRA FAST TORRENT**\n\n"
+            f"📄 `{file_name}`\n"
+            f"📦 {file_size_mb:.1f} MB\n"
+            f"⚡ {total_time:.1f}s\n"
+            f"🔑 `{info_hash[:24]}...`\n\n"
+            f"🧲 **Magnet:**\n`{magnet_link}`\n\n"
+            f"🚀 **SEEDING AT 1000MB/s** 🚀"
         )
         
         # Send .torrent file

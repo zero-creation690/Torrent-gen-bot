@@ -21,7 +21,8 @@ API_ID = int(os.getenv("API_ID"))
 API_HASH = os.getenv("API_HASH")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 SESSION_NAME = os.getenv("SESSION_NAME", "torrent_userbot")
-BIN_CHANNEL = int(os.getenv("BIN_CHANNEL"))  # Supports both -100 and -1003 format
+# Ensure BIN_CHANNEL is set to the correct -100... ID
+BIN_CHANNEL = int(os.getenv("BIN_CHANNEL")) 
 OWNER_ID = int(os.getenv("OWNER_ID", "0"))
 MONGO_URI = os.getenv("MONGO_URI", "mongodb://mongodb:27017/")
 
@@ -87,8 +88,8 @@ lt_session = lt.session({
     'outgoing_interfaces': '',
     'announce_to_all_tiers': True,
     'announce_to_all_trackers': True,
-    'aio_threads': 16,  # Increased for faster I/O
-    'checking_mem_usage': 2048  # More memory for faster checking (2GB)
+    'aio_threads': 16,  
+    'checking_mem_usage': 2048  # 2GB
 })
 
 # ULTRA FAST seeding settings (like YTS/1337x)
@@ -97,22 +98,22 @@ settings = {
     'enable_lsd': True,
     'enable_upnp': True,
     'enable_natpmp': True,
-    'connections_limit': 4000,  # Increased connections
+    'connections_limit': 4000, 
     'upload_rate_limit': 0,  # Unlimited upload
-    'download_rate_limit': 0,  # Unlimited download
+    'download_rate_limit': 0, 
     'active_downloads': -1,
     'active_seeds': -1,
     'active_limit': -1,
     'max_out_request_queue': 5000,
     'max_allowed_in_request_queue': 5000,
-    'unchoke_slots_limit': 200,  # More upload slots
+    'unchoke_slots_limit': 200, 
     'max_peerlist_size': 8000,
     'max_paused_peerlist_size': 8000,
     'min_reconnect_time': 1,
     'peer_connect_timeout': 5,
     'request_timeout': 15,
     'inactivity_timeout': 30,
-    'torrent_connect_boost': 50,  # Connect faster
+    'torrent_connect_boost': 50,  
     'seeding_outgoing_connections': True,
     'no_connect_privileged_ports': False,
     'seed_choking_algorithm': 1,  # Fastest upload
@@ -231,7 +232,7 @@ def start_seeding(file_path: Path, torrent_file: Path) -> str:
         atp.flags |= lt.torrent_flags.auto_managed
         atp.flags |= lt.torrent_flags.upload_mode  # Seed only mode
         atp.flags |= lt.torrent_flags.share_mode  # Share with everyone
-        atp.flags |= lt.torrent_flags.super_seeding # FIX: Set super seeding as a flag
+        atp.flags |= lt.torrent_flags.super_seeding 
         
         handle = lt_session.add_torrent(atp)
         
@@ -338,6 +339,7 @@ async def handle_file(client: Client, message: Message):
                 forwarded_id = forwarded.id
             logger.info(f"✅ Sent to BIN_CHANNEL")
         except Exception as e:
+            # This is the expected log if BIN_CHANNEL ID is wrong or permissions are missing
             logger.warning(f"⚠️ Channel forward skipped: {e}")
             # Continue anyway - we'll still create torrent
         
@@ -542,15 +544,25 @@ if __name__ == "__main__":
     loop = asyncio.get_event_loop()
     
     try:
-        # Start both the Pyrogram bot and the monitor loop concurrently
-        # The app.start() will start the client, and we rely on asyncio.gather to keep both tasks running
+        # **CRITICAL FIX for async issue (from your logs) and concurrent run:**
+        # Pyrogram's app.run() is synchronous, so we use loop.run_until_complete(app.start())
+        # to start the client, and then run the monitor loop while waiting for app.idle().
+        app.set_parse_mode("markdown")
+        loop.run_until_complete(app.start())
+        
+        # Notify the owner that the bot has started
+        loop.run_until_complete(app.send_message(OWNER_ID, "✅ Bot deployed and monitor started!"))
+        
+        # Run the monitor loop concurrently with the Pyrogram client waiting for updates
         loop.run_until_complete(asyncio.gather(
-            app.start(),
-            lt_monitor_loop()
+            lt_monitor_loop(),
+            app.idle()
         ))
+        
     except KeyboardInterrupt:
         logger.info("Shutting down gracefully...")
         lt_session.pause()
         mongo_client.close()
     except Exception as e:
         logger.error(f"Fatal error: {e}", exc_info=True)
+

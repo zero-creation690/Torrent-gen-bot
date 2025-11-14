@@ -2,7 +2,7 @@ import os
 import asyncio
 import libtorrent as lt
 from pathlib import Path
-from pyrogram import Client, filters
+from pyrogram import Client, filters, idle
 from pyrogram.types import Message
 from pymongo import MongoClient
 from datetime import datetime
@@ -20,7 +20,6 @@ logger = logging.getLogger(__name__)
 API_ID = int(os.getenv("API_ID"))
 API_HASH = os.getenv("API_HASH")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-# CRITICAL: BIN_CHANNEL must be a negative integer ID (e.g., -100xxxxxxxxxx)
 BIN_CHANNEL = int(os.getenv("BIN_CHANNEL"))
 OWNER_ID = int(os.getenv("OWNER_ID", "0"))
 MONGO_URI = os.getenv("MONGO_URI", "mongodb://mongodb:27017/")
@@ -33,7 +32,7 @@ TORRENT_DIR = Path("/srv/torrents")
 SEED_DIR.mkdir(parents=True, exist_ok=True)
 TORRENT_DIR.mkdir(parents=True, exist_ok=True)
 
-# CRITICAL FIX: Delete old session files to prevent auth errors
+# Delete old session files
 import glob
 session_files = glob.glob("/srv/*.session*")
 for f in session_files:
@@ -43,185 +42,169 @@ for f in session_files:
     except:
         pass
 
-# ULTRA FAST trackers
+# YTS-style ULTRA FAST trackers
 TRACKERS = [
-    # Tier 1 - FASTEST (Public & Popular)
     "udp://tracker.opentrackr.org:1337/announce",
     "udp://open.stealth.si:80/announce",
     "udp://tracker.torrent.eu.org:451/announce",
     "udp://exodus.desync.com:6969/announce",
     "udp://tracker.moeking.me:6969/announce",
-    
-    # Tier 2 - Fast & Reliable
-    "https://tracker.openbittorrent.com:443/announce",
     "udp://opentracker.i2p.rocks:6969/announce",
     "udp://tracker.internetwarriors.net:1337/announce",
     "udp://tracker.tiny-vps.com:6969/announce",
     "udp://tracker.dler.org:6969/announce",
-    
-    # Tier 3 - High Performance
     "udp://9.rarbg.com:2810/announce",
     "udp://tracker.cyberia.is:6969/announce",
     "udp://retracker.lanta-net.ru:2710/announce",
     "udp://tracker.zer0day.to:1337/announce",
-    
-    # WebTorrent for browser downloads
     "wss://tracker.btorrent.xyz",
     "wss://tracker.openwebtorrent.com",
-    "wss://tracker.fastcast.nz"
 ]
 
 # Initialize MongoDB
 try:
-    mongo_client = MongoClient(MONGO_URI)
+    mongo_client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
     db = mongo_client['torrent_bot']
     torrents_collection = db['torrents']
-    stats_collection = db['stats']
-    logger.info("✅ MongoDB connected successfully")
+    mongo_client.admin.command('ping')
+    logger.info("✅ MongoDB connected")
 except Exception as e:
-    logger.error(f"❌ MongoDB connection failed: {e}")
+    logger.warning(f"⚠️ MongoDB unavailable: {e}")
     mongo_client = None
 
-# Initialize Bot with FIXED session name
+# Initialize Bot
 app = Client(
-    f"bot_{int(time.time())}",  # UNIQUE name with timestamp to avoid old sessions
+    f"yts_bot_{int(time.time())}",
     api_id=API_ID,
     api_hash=API_HASH,
     bot_token=BOT_TOKEN,
     workdir="/srv",
-    workers=8
+    workers=8,
+    parse_mode="markdown"
 )
 
-# Libtorrent session with ULTRA FAST settings
+# YTS-STYLE ULTRA FAST Libtorrent Settings
 lt_session = lt.session({
     'listen_interfaces': '0.0.0.0:6881,[::]:6881',
-    'alert_mask': lt.alert.category_t.status_notification | lt.alert.category_t.error_notification | lt.alert.category_t.tracker_notification,
+    'alert_mask': lt.alert.category_t.all_categories,
     'outgoing_interfaces': '',
     'announce_to_all_tiers': True,
     'announce_to_all_trackers': True,
-    'aio_threads': 16,
-    'checking_mem_usage': 2048  # 2GB
+    'aio_threads': 32,
+    'checking_mem_usage': 4096
 })
 
-# ULTRA FAST seeding settings
+# MAXIMUM PERFORMANCE SETTINGS (YTS-style)
 settings = {
     'enable_dht': True,
     'enable_lsd': True,
     'enable_upnp': True,
     'enable_natpmp': True,
-    'connections_limit': 4000,
-    'upload_rate_limit': 0,  # Unlimited upload
+    'connections_limit': 10000,
+    'upload_rate_limit': 0,
     'download_rate_limit': 0,
     'active_downloads': -1,
     'active_seeds': -1,
     'active_limit': -1,
-    'max_out_request_queue': 5000,
-    'max_allowed_in_request_queue': 5000,
-    'unchoke_slots_limit': 200,
-    'max_peerlist_size': 8000,
-    'max_paused_peerlist_size': 8000,
+    'max_out_request_queue': 10000,
+    'max_allowed_in_request_queue': 10000,
+    'unchoke_slots_limit': 500,
+    'max_peerlist_size': 16000,
+    'max_paused_peerlist_size': 16000,
     'min_reconnect_time': 1,
-    'peer_connect_timeout': 5,
-    'request_timeout': 15,
-    'inactivity_timeout': 30,
-    'torrent_connect_boost': 50,
+    'peer_connect_timeout': 3,
+    'request_timeout': 10,
+    'inactivity_timeout': 20,
+    'torrent_connect_boost': 100,
     'seeding_outgoing_connections': True,
     'no_connect_privileged_ports': False,
-    'seed_choking_algorithm': 1,  # Fastest upload
-    'cache_size': 2048,  # 2GB cache
+    'seed_choking_algorithm': 1,
+    'cache_size': 4096,
     'use_read_cache': True,
-    'cache_buffer_chunk_size': 128,
-    'read_cache_line_size': 128,
-    'write_cache_line_size': 128,
-    'file_pool_size': 500,
+    'cache_buffer_chunk_size': 256,
+    'read_cache_line_size': 256,
+    'write_cache_line_size': 256,
+    'file_pool_size': 1000,
     'max_retry_port_bind': 100,
-    'alert_queue_size': 2000,
+    'alert_queue_size': 5000,
     'allow_multiple_connections_per_ip': True,
-    'send_buffer_watermark': 5 * 1024 * 1024,
-    'send_buffer_low_watermark': 1 * 1024 * 1024,
-    'send_buffer_watermark_factor': 150,
+    'send_buffer_watermark': 10 * 1024 * 1024,
+    'send_buffer_low_watermark': 2 * 1024 * 1024,
+    'send_buffer_watermark_factor': 200,
 }
 lt_session.apply_settings(settings)
 
-# Add DHT routers for better peer discovery
+# Add DHT routers
 lt_session.add_dht_router("router.bittorrent.com", 6881)
 lt_session.add_dht_router("dht.transmissionbt.com", 6881)
 lt_session.add_dht_router("router.utorrent.com", 6881)
 lt_session.add_dht_router("dht.libtorrent.org", 25401)
 
-# Store active torrents
 active_torrents = {}
 
-logger.info("✅ Bot initialized with optimized settings")
+logger.info("✅ YTS-style bot initialized")
 
 
 def save_to_mongodb(torrent_data: dict):
     """Save torrent data to MongoDB"""
     if not mongo_client:
-        logger.warning("⚠️ MongoDB not available, skipping save")
         return
-    
     try:
         torrents_collection.insert_one(torrent_data)
-        logger.info(f"✅ Saved to MongoDB: {torrent_data['file_name']}")
+        logger.info(f"💾 Saved: {torrent_data['file_name']}")
     except Exception as e:
-        logger.error(f"❌ MongoDB save error: {e}")
+        logger.error(f"❌ MongoDB error: {e}")
 
 
 def create_torrent_file(file_path: Path) -> tuple[Path, str]:
-    """Create .torrent file and magnet link - ULTRA OPTIMIZED"""
+    """Create .torrent file - YTS OPTIMIZED"""
     try:
         fs = lt.file_storage()
         lt.add_files(fs, str(file_path))
         
-        # Create torrent with OPTIMAL piece size
         file_size = file_path.stat().st_size
         
-        # Piece size optimization logic
-        if file_size < 100 * 1024 * 1024:  # < 100MB
+        # YTS-style piece size (smaller = faster start)
+        if file_size < 50 * 1024 * 1024:  # < 50MB
+            piece_size = 128 * 1024  # 128KB
+        elif file_size < 200 * 1024 * 1024:  # < 200MB
             piece_size = 256 * 1024  # 256KB
-        elif file_size < 500 * 1024 * 1024:  # < 500MB
+        elif file_size < 700 * 1024 * 1024:  # < 700MB
             piece_size = 512 * 1024  # 512KB
-        elif file_size < 1024 * 1024 * 1024:  # < 1GB
+        else:
             piece_size = 1024 * 1024  # 1MB
-        else:  # > 1GB
-            piece_size = 2 * 1024 * 1024  # 2MB
         
         t = lt.create_torrent(fs, piece_size=piece_size)
-        t.set_priv(False)  # Public for more peers
+        t.set_priv(False)
         
-        # Add BEST trackers
-        tier = 0
+        # Add all trackers
         for tracker in TRACKERS:
-            t.add_tracker(tracker, tier)
+            t.add_tracker(tracker, 0)
         
-        t.set_creator("TG Ultra Fast Bot")
-        t.set_comment(f"Fast Download | {file_path.name}")
+        t.set_creator("YTS-Style Ultra Bot")
+        t.set_comment(f"⚡ ULTRA FAST | {file_path.name}")
         
-        # Generate piece hashes
         lt.set_piece_hashes(t, str(file_path.parent))
         
-        # Generate torrent
         torrent_data = lt.bencode(t.generate())
         torrent_file_path = TORRENT_DIR / f"{file_path.stem}.torrent"
         
         with open(torrent_file_path, "wb") as f:
             f.write(torrent_data)
         
-        # Generate magnet link
         info = lt.torrent_info(str(torrent_file_path))
         magnet_link = lt.make_magnet_uri(info)
         
-        logger.info(f"✅ Torrent created: {torrent_file_path.name} | Piece: {piece_size/1024}KB")
+        logger.info(f"⚡ Torrent: {piece_size/1024}KB pieces")
         return torrent_file_path, magnet_link
         
     except Exception as e:
-        logger.error(f"❌ Error creating torrent: {e}")
+        logger.error(f"❌ Torrent creation failed: {e}")
         raise
 
 
-def apply_aggressive_handle_settings(handle: lt.torrent_handle):
-    """Apply aggressive settings to a torrent handle"""
+def apply_yts_settings(handle: lt.torrent_handle):
+    """Apply YTS-style aggressive settings"""
     if handle.is_valid():
         handle.set_max_uploads(-1)
         handle.set_max_connections(-1)
@@ -231,26 +214,21 @@ def apply_aggressive_handle_settings(handle: lt.torrent_handle):
 
 
 def start_seeding(file_path: Path, torrent_file: Path) -> str:
-    """Start seeding with ULTRA FAST settings"""
+    """Start YTS-style seeding"""
     try:
         info = lt.torrent_info(str(torrent_file))
         
-        # Create add_torrent_params with MAXIMUM performance
         atp = lt.add_torrent_params()
         atp.ti = info
         atp.save_path = str(file_path.parent)
         
-        # Set flags for ULTRA FAST seeding
         atp.flags |= lt.torrent_flags.seed_mode
         atp.flags |= lt.torrent_flags.auto_managed
         atp.flags |= lt.torrent_flags.upload_mode
-        atp.flags |= lt.torrent_flags.share_mode
         atp.flags |= lt.torrent_flags.super_seeding
         
         handle = lt_session.add_torrent(atp)
-        
-        # Apply aggressive settings immediately
-        apply_aggressive_handle_settings(handle)
+        apply_yts_settings(handle)
         
         info_hash = str(info.info_hash())
         
@@ -262,31 +240,38 @@ def start_seeding(file_path: Path, torrent_file: Path) -> str:
             'name': file_path.name
         }
         
-        logger.info(f"🌱 ULTRA SEEDING: {file_path.name} | Hash: {info_hash[:16]}")
+        logger.info(f"🚀 YTS SEEDING: {file_path.name}")
         return info_hash
         
     except Exception as e:
-        logger.error(f"❌ Error starting seeder: {e}")
+        logger.error(f"❌ Seeding failed: {e}")
         raise
 
 
 async def lt_monitor_loop():
-    """Monitor libtorrent session and maintain performance"""
+    """YTS-style performance monitor"""
     logger.info("🔄 Monitor loop started")
     while True:
         try:
-            # Process alerts
-            lt_session.pop_alerts()
+            alerts = lt_session.pop_alerts()
             
-            # Re-apply aggressive settings
             for info_hash, data in list(active_torrents.items()):
                 handle = data['handle']
-                if handle.is_valid() and handle.status().state == lt.torrent_status.seeding:
-                    apply_aggressive_handle_settings(handle)
+                if handle.is_valid():
+                    status = handle.status()
+                    if status.state == lt.torrent_status.seeding:
+                        apply_yts_settings(handle)
+                        
+                        # Log performance every 5 minutes
+                        uptime = time.time() - data['started']
+                        if int(uptime) % 300 == 0:
+                            upload_mb = status.total_upload / (1024**2)
+                            logger.info(f"📊 {data['name'][:30]} | ⬆️ {upload_mb:.1f}MB | 🌱 {status.num_seeds}s {status.num_peers}p")
                     
-            await asyncio.sleep(15)
+            await asyncio.sleep(10)
+            
         except Exception as e:
-            logger.error(f"❌ Monitor loop error: {e}")
+            logger.error(f"❌ Monitor error: {e}")
             await asyncio.sleep(30)
 
 
@@ -294,14 +279,13 @@ async def lt_monitor_loop():
 
 @app.on_message(filters.document | filters.video | filters.audio)
 async def handle_file(client: Client, message: Message):
-    """Handle incoming files"""
+    """Handle file uploads - YTS optimized"""
     try:
         start_time = time.time()
         
-        # Get file info
         if message.document:
             media = message.document
-            file_name = media.file_name or f"document_{media.file_unique_id}"
+            file_name = media.file_name or f"doc_{media.file_unique_id}"
         elif message.video:
             media = message.video
             file_name = media.file_name or f"video_{media.file_unique_id}.mp4"
@@ -314,284 +298,198 @@ async def handle_file(client: Client, message: Message):
         file_size = media.file_size
         file_size_mb = file_size / (1024**2)
         
-        logger.info(f"📥 Received: {file_name} ({file_size_mb:.2f} MB)")
-        
-        # Size check (4GB limit)
-        if file_size > 4 * 1024 * 1024 * 1024:
-            await message.reply_text("❌ File exceeds 4GB limit!")
+        if file_size > 4 * 1024**3:
+            await message.reply_text("❌ Max 4GB!")
             return
         
-        # Status message
         status = await message.reply_text(
-            f"⚡ **Processing...**\n\n"
+            f"⚡ **YTS Processing**\n\n"
             f"📄 `{file_name}`\n"
             f"📦 **{file_size_mb:.1f} MB**"
         )
         
-        # STEP 1: Forward to BIN_CHANNEL
+        # Forward to channel
         forwarded_id = None
         try:
             if message.document:
-                forwarded = await client.send_document(
-                    BIN_CHANNEL,
-                    message.document.file_id,
-                    caption=f"📁 {file_name}\n👤 From: {message.from_user.id}"
-                )
-                forwarded_id = forwarded.id
+                fwd = await client.send_document(BIN_CHANNEL, media.file_id, caption=f"📁 {file_name}")
             elif message.video:
-                forwarded = await client.send_video(
-                    BIN_CHANNEL,
-                    message.video.file_id,
-                    caption=f"🎬 {file_name}\n👤 From: {message.from_user.id}"
-                )
-                forwarded_id = forwarded.id
+                fwd = await client.send_video(BIN_CHANNEL, media.file_id, caption=f"🎬 {file_name}")
             elif message.audio:
-                forwarded = await client.send_audio(
-                    BIN_CHANNEL,
-                    message.audio.file_id,
-                    caption=f"🎵 {file_name}\n👤 From: {message.from_user.id}"
-                )
-                forwarded_id = forwarded.id
-            logger.info(f"✅ Sent to BIN_CHANNEL: {forwarded_id}")
+                fwd = await client.send_audio(BIN_CHANNEL, media.file_id, caption=f"🎵 {file_name}")
+            forwarded_id = fwd.id
+            logger.info(f"✅ Forwarded to channel")
         except Exception as e:
             logger.warning(f"⚠️ Channel forward failed: {e}")
         
-        # STEP 2: Download locally
+        # Download
         file_path = SEED_DIR / file_name
-        download_start = time.time()
         
         try:
             await message.download(file_name=str(file_path))
-            download_time = time.time() - download_start
-            logger.info(f"✅ Downloaded in {download_time:.1f}s")
+            logger.info(f"✅ Downloaded")
         except Exception as e:
             await status.edit_text(f"❌ Download failed: {e}")
             return
         
-        # STEP 3: Create torrent
+        # Create torrent
         await status.edit_text(
-            f"⚡ **Processing...**\n\n"
+            f"⚡ **YTS Processing**\n\n"
             f"📄 `{file_name}`\n"
             f"📦 **{file_size_mb:.1f} MB**\n\n"
             f"🔧 Creating torrent..."
         )
         
         try:
-            torrent_file, magnet_link = await asyncio.get_event_loop().run_in_executor(
-                None, create_torrent_file, file_path
-            )
+            torrent_file, magnet_link = await asyncio.to_thread(create_torrent_file, file_path)
         except Exception as e:
-            await status.edit_text(f"❌ Torrent creation failed: {e}")
+            await status.edit_text(f"❌ Torrent failed: {e}")
             return
         
-        # STEP 4: Start seeding
+        # Start seeding
         try:
             info_hash = start_seeding(file_path, torrent_file)
         except Exception as e:
             await status.edit_text(f"❌ Seeding failed: {e}")
             return
         
-        # Calculate total time
         total_time = time.time() - start_time
         
         # Save to MongoDB
-        torrent_data = {
-            'info_hash': info_hash,
-            'file_name': file_name,
-            'file_size': file_size,
-            'magnet_link': magnet_link,
-            'torrent_file': str(torrent_file),
-            'bin_channel_msg_id': forwarded_id,
-            'created_at': datetime.utcnow(),
-            'user_id': message.from_user.id,
-            'username': message.from_user.username,
-            'processing_time': total_time,
-            'channel_forwarded': forwarded_id is not None
-        }
+        if mongo_client:
+            torrent_data = {
+                'info_hash': info_hash,
+                'file_name': file_name,
+                'file_size': file_size,
+                'magnet_link': magnet_link,
+                'torrent_file': str(torrent_file),
+                'bin_channel_msg_id': forwarded_id,
+                'created_at': datetime.utcnow(),
+                'user_id': message.from_user.id,
+                'processing_time': total_time
+            }
+            await asyncio.to_thread(save_to_mongodb, torrent_data)
         
-        await asyncio.get_event_loop().run_in_executor(
-            None, save_to_mongodb, torrent_data
-        )
-        
-        # Send final result
         await status.delete()
         
-        # Send .torrent file with caption
+        # Send results
         caption = (
-            f"⚡ **ULTRA FAST TORRENT**\n\n"
+            f"⚡ **YTS ULTRA FAST**\n\n"
             f"📄 `{file_name}`\n"
             f"📦 {file_size_mb:.1f} MB\n"
             f"⚡ {total_time:.1f}s\n"
-            f"🔑 `{info_hash[:24]}...`\n\n"
-            f"🚀 **SEEDING AT MAX SPEED** 🚀"
+            f"🔑 `{info_hash[:20]}...`\n\n"
+            f"🚀 **SEEDING LIKE YTS** 🚀"
         )
         
-        torrent_message = await message.reply_document(
+        torrent_msg = await message.reply_document(
             document=str(torrent_file),
             caption=caption,
             file_name=torrent_file.name
         )
         
-        # Send magnet link
         await client.send_message(
             chat_id=message.chat.id,
             text=f"🧲 **Magnet:**\n`{magnet_link}`",
-            reply_to_message_id=torrent_message.id,
-            disable_web_page_preview=True
+            reply_to_message_id=torrent_msg.id
         )
         
-        logger.info(f"✅ Complete in {total_time:.1f}s: {file_name}")
+        logger.info(f"✅ YTS Complete: {file_name} in {total_time:.1f}s")
         
     except Exception as e:
-        logger.error(f"❌ Critical error: {e}", exc_info=True)
-        try:
-            await message.reply_text(f"❌ Error: {e}")
-        except:
-            pass
+        logger.error(f"❌ Error: {e}", exc_info=True)
 
 
 @app.on_message(filters.command("start"))
-async def start_command(client: Client, message: Message):
-    """Welcome message"""
+async def start_cmd(_, message: Message):
     await message.reply_text(
-        "🤖 **Telegram Torrent Bot**\n\n"
-        "Send me any file up to **4GB**!\n\n"
-        "**Features:**\n"
-        "✅ Permanent storage in bin channel\n"
-        "✅ Ultra-fast torrent creation\n"
-        "✅ Instant magnet links\n"
-        "✅ MongoDB tracking\n"
-        "✅ 24/7 seeding\n\n"
+        "🤖 **YTS-Style Torrent Bot**\n\n"
+        "Send files up to **4GB**!\n\n"
+        "✅ YTS-optimized seeding\n"
+        "✅ Ultra-fast torrents\n"
+        "✅ Instant magnets\n\n"
         "**Commands:**\n"
-        "/stats - Active torrents\n"
-        "/list - Recent torrents\n"
-        "/db - Database statistics\n"
-        "/start - This message"
+        "/stats - Seeding stats\n"
+        "/list - Recent torrents"
     )
 
 
 @app.on_message(filters.command("stats"))
-async def stats_command(client: Client, message: Message):
-    """Show seeding stats"""
+async def stats_cmd(_, message: Message):
     if not active_torrents:
-        await message.reply_text("📊 **No active torrents**")
+        await message.reply_text("📊 No active seeds")
         return
     
-    stats = "📊 **Active Torrents**\n\n"
-    total_upload = 0
+    text = "📊 **YTS Seeding**\n\n"
+    total = 0
     
-    for info_hash, data in active_torrents.items():
-        handle = data['handle']
-        status = handle.status()
+    for ih, data in list(active_torrents.items())[:10]:
+        h = data['handle']
+        s = h.status()
+        up_gb = s.total_upload / (1024**3)
+        total += up_gb
         
-        uptime = time.time() - data['started']
-        hours = int(uptime // 3600)
-        minutes = int((uptime % 3600) // 60)
-        
-        upload_gb = status.total_upload / (1024**3)
-        total_upload += upload_gb
-        
-        stats += (
-            f"📄 **{data['name'][:30]}**\n"
-            f"🔑 `{info_hash[:20]}...`\n"
-            f"⬆️ {upload_gb:.2f} GB\n"
-            f"🌱 Seeds: {status.num_seeds} | Peers: {status.num_peers}\n"
-            f"⏱ {hours}h {minutes}m\n\n"
+        text += (
+            f"📄 `{data['name'][:25]}`\n"
+            f"⬆️ {up_gb:.2f}GB | 🌱{s.num_seeds} 👥{s.num_peers}\n\n"
         )
     
-    stats += f"📊 **Total Upload:** {total_upload:.2f} GB"
-    await message.reply_text(stats)
+    text += f"**Total:** {total:.2f} GB uploaded"
+    await message.reply_text(text)
 
 
 @app.on_message(filters.command("list"))
-async def list_command(client: Client, message: Message):
-    """List all torrents from MongoDB"""
+async def list_cmd(_, message: Message):
     if not mongo_client:
-        await message.reply_text("❌ MongoDB not available")
+        await message.reply_text("❌ Database unavailable")
         return
     
     try:
-        torrents = list(torrents_collection.find().sort("created_at", -1).limit(10))
-        
-        if not torrents:
-            await message.reply_text("📂 **No torrents in database**")
+        docs = list(torrents_collection.find().sort("created_at", -1).limit(10))
+        if not docs:
+            await message.reply_text("📂 No torrents yet")
             return
         
         text = "📂 **Recent Torrents**\n\n"
-        
-        for t in torrents:
-            size_mb = t['file_size'] / (1024**2)
-            text += (
-                f"📄 `{t['file_name'][:40]}`\n"
-                f"📦 {size_mb:.1f} MB\n"
-                f"🔑 `{t['info_hash'][:20]}...`\n\n"
-            )
+        for d in docs:
+            mb = d['file_size'] / (1024**2)
+            text += f"📄 `{d['file_name'][:35]}`\n📦 {mb:.1f}MB\n\n"
         
         await message.reply_text(text)
     except Exception as e:
-        await message.reply_text(f"❌ Error: {e}")
-
-
-@app.on_message(filters.command("db"))
-async def db_stats(client: Client, message: Message):
-    """Database statistics"""
-    if not mongo_client:
-        await message.reply_text("❌ MongoDB not available")
-        return
-    
-    try:
-        total = torrents_collection.count_documents({})
-        total_size = sum([t.get('file_size', 0) for t in torrents_collection.find()])
-        total_gb = total_size / (1024**3)
-        
-        await message.reply_text(
-            f"💾 **Database Stats**\n\n"
-            f"📊 Total Torrents: **{total}**\n"
-            f"📦 Total Size: **{total_gb:.2f} GB**"
-        )
-    except Exception as e:
-        await message.reply_text(f"❌ Error: {e}")
+        await message.reply_text(f"❌ {e}")
 
 
 async def main():
-    """Main async function"""
-    try:
-        # Start the Pyrogram client
-        await app.start()
-        logger.info("✅ Bot started successfully!")
-        
-        # Notify owner
-        if OWNER_ID != 0:
-            try:
-                await app.send_message(OWNER_ID, "✅ Bot is online and ready!")
-            except Exception as e:
-                logger.warning(f"⚠️ Could not notify owner: {e}")
-        
-        # Run monitor loop and keep bot running
-        await asyncio.gather(
-            lt_monitor_loop(),
-            app.idle()
-        )
-        
-    except Exception as e:
-        logger.error(f"❌ Fatal error: {e}", exc_info=True)
-    finally:
-        await app.stop()
-        lt_session.pause()
-        if mongo_client:
-            mongo_client.close()
+    """Main function"""
+    await app.start()
+    logger.info("✅ YTS Bot Online!")
+    
+    if OWNER_ID != 0:
+        try:
+            await app.send_message(OWNER_ID, "✅ YTS Bot started!")
+        except:
+            pass
+    
+    # Start monitor
+    monitor_task = asyncio.create_task(lt_monitor_loop())
+    
+    # Keep running
+    await idle()
+    
+    # Cleanup
+    monitor_task.cancel()
+    await app.stop()
+    lt_session.pause()
+    if mongo_client:
+        mongo_client.close()
 
 
 if __name__ == "__main__":
+    logger.info("🚀 YTS-STYLE TORRENT BOT")
     logger.info("=" * 50)
-    logger.info("🚀 TELEGRAM TORRENT BOT")
-    logger.info("=" * 50)
-    
-    # Set parse mode
-    app.set_parse_mode("markdown")
     
     try:
-        # Run the main async function
         asyncio.run(main())
     except KeyboardInterrupt:
-        logger.info("🛑 Shutting down gracefully...")
+        logger.info("👋 Goodbye!")

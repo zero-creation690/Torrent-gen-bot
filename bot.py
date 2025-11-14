@@ -339,9 +339,9 @@ async def handle_file(client: Client, message: Message):
                 forwarded_id = forwarded.id
             logger.info(f"✅ Sent to BIN_CHANNEL")
         except Exception as e:
-            # This is the expected log if BIN_CHANNEL ID is wrong or permissions are missing
+            # This handles errors if the BIN_CHANNEL ID is wrong or bot lacks permissions
             logger.warning(f"⚠️ Channel forward skipped: {e}")
-            # Continue anyway - we'll still create torrent
+            
         
         # STEP 2: Download locally (with progress)
         file_path = SEED_DIR / file_name
@@ -544,9 +544,7 @@ if __name__ == "__main__":
     loop = asyncio.get_event_loop()
     
     try:
-        # **CRITICAL FIX for async issue (from your logs) and concurrent run:**
-        # Pyrogram's app.run() is synchronous, so we use loop.run_until_complete(app.start())
-        # to start the client, and then run the monitor loop while waiting for app.idle().
+        # CRITICAL FIX: Properly start Pyrogram client before gathering tasks.
         app.set_parse_mode("markdown")
         loop.run_until_complete(app.start())
         
@@ -565,4 +563,3 @@ if __name__ == "__main__":
         mongo_client.close()
     except Exception as e:
         logger.error(f"Fatal error: {e}", exc_info=True)
-

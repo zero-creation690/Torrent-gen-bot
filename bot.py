@@ -122,7 +122,7 @@ settings = {
     'cache_buffer_chunk_size': 128,
     'read_cache_line_size': 128,
     'write_cache_line_size': 128,
-    # 'optimize_hashing_for_speed': True, # <-- FIX #1: Removed this line
+    # 'optimize_hashing_for_speed': True, # <-- FIX #1
     'file_pool_size': 500,
     'max_retry_port_bind': 100,
     'alert_queue_size': 2000,
@@ -221,7 +221,7 @@ def start_seeding(file_path: Path, torrent_file: Path) -> str:
         atp.flags |= lt.torrent_flags.auto_managed
         atp.flags |= lt.torrent_flags.upload_mode  # Seed only mode
         atp.flags |= lt.torrent_flags.share_mode  # Share with everyone
-        atp.flags |= lt.torrent_flags.super_seeding # <-- FIX #2: Set super seeding as a flag here
+        atp.flags |= lt.torrent_flags.super_seeding # <-- FIX #2
         
         handle = lt_session.add_torrent(atp)
         
@@ -234,8 +234,7 @@ def start_seeding(file_path: Path, torrent_file: Path) -> str:
         handle.force_reannounce(0, -1)  # All trackers
         handle.force_dht_announce()
         
-        # Set super seeding for initial fast distribution
-        # handle.set_super_seeding(True) # <-- FIX #2: Removed this error line
+        # handle.set_super_seeding(True) # <-- FIX #2
         
         info_hash = str(info.info_hash())
         
@@ -386,22 +385,34 @@ async def handle_file(client: Client, message: Message):
         # Send final result IMMEDIATELY
         await status.delete()
         
+        # --- FIX #3: START ---
+        # The caption was too long because magnet links can be huge.
+        
+        # 1. Create the main caption WITHOUT the magnet link
         caption = (
             f"⚡ **ULTRA FAST TORRENT**\n\n"
             f"📄 `{file_name}`\n"
             f"📦 {file_size_mb:.1f} MB\n"
             f"⚡ {total_time:.1f}s\n"
             f"🔑 `{info_hash[:24]}...`\n\n"
-            f"🧲 **Magnet:**\n`{magnet_link}`\n\n"
             f"🚀 **SEEDING AT 1000MB/s** 🚀"
         )
         
-        # Send .torrent file
-        await message.reply_document(
+        # 2. Send the .torrent file with the shorter caption
+        torrent_message = await message.reply_document(
             document=str(torrent_file),
             caption=caption,
             file_name=torrent_file.name
         )
+        
+        # 3. Send the magnet link as a separate message, replying to the .torrent file
+        await client.send_message(
+            chat_id=message.chat.id,
+            text=f"🧲 **Magnet:**\n`{magnet_link}`",
+            reply_to_message_id=torrent_message.id,
+            disable_web_page_preview=True
+        )
+        # --- FIX #3: END ---
         
         logger.info(f"✅ Complete in {total_time:.1f}s: {file_name}")
         

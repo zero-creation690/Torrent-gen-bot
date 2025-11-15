@@ -18,7 +18,6 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Configuration
-# NOTE: Ensure these environment variables are set correctly in Sevalla.
 API_ID = int(os.getenv("API_ID"))
 API_HASH = os.getenv("API_HASH")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -536,42 +535,49 @@ async def db_stats(client: Client, message: Message):
     except Exception as e:
         await message.reply_text(f"❌ Error: {e}")
 
-
-if __name__ == "__main__":
+# --- New Main Asynchronous Execution Function ---
+async def main():
+    """Main async function to start all components correctly."""
     logger.info("=" * 50)
     logger.info("🚀 TELEGRAM TORRENT BOT")
     logger.info("=" * 50)
-    
-    # Get the asyncio event loop
-    loop = asyncio.get_event_loop()
-    
+
     try:
-        # **CRITICAL FIX: Start Pyrogram client and handle FloodWait**
+        # Start Pyrogram client
         app.set_parse_mode("markdown")
         
         try:
-            # Try to start the client asynchronously
-            loop.run_until_complete(app.start())
+            # Try to start the client
+            await app.start()
         except FloodWait as e:
             # If Pyrogram throws FloodWait during startup, wait the required time
             logger.error(f"Telegram FloodWait during startup. Waiting {e.value} seconds...")
-            time.sleep(e.value + 5)
-            # Try starting again (this will likely lead to another deployment restart if in a container)
-            loop.run_until_complete(app.start())
-        
+            await asyncio.sleep(e.value + 5)
+            await app.start()
+
         # Notify the owner that the bot has started (Ensures the client is ready)
         if OWNER_ID != 0:
-            loop.run_until_complete(app.send_message(OWNER_ID, "✅ Bot deployed and monitor started!"))
-        
+            await app.send_message(OWNER_ID, "✅ Bot deployed and monitor started! **Running with full async fix.**")
+
         # Run the monitor loop and the main Pyrogram listener concurrently
-        loop.run_until_complete(asyncio.gather(
+        await asyncio.gather(
             lt_monitor_loop(),
             app.idle()
-        ))
-        
+        )
+
     except KeyboardInterrupt:
         logger.info("Shutting down gracefully...")
         lt_session.pause()
         mongo_client.close()
     except Exception as e:
         logger.error(f"Fatal error: {e}", exc_info=True)
+
+
+if __name__ == "__main__":
+    # CRITICAL FIX: Use asyncio.run() to execute the single main async function
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        logger.info("Process interrupted.")
+    except Exception as e:
+        logger.error(f"Global process error: {e}", exc_info=True)
